@@ -6,7 +6,9 @@
 # requires-python = ">=3.11"
 # dependencies = ["requests", "rich", "python-dotenv", "textual>=0.80.0"]
 # ///
+# Can also be installed as a package: uvx bb-stats
 
+import argparse
 import json
 import logging
 import os
@@ -45,24 +47,14 @@ from urllib3.util.retry import Retry
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
-load_dotenv()
-
-WORKSPACE = "tbdsrl"
-REPO_SLUG = "price-ninja-top-10"
-
-TOKEN = os.environ.get("BITBUCKET")
-EMAIL = os.environ.get("BITBUCKET_EMAIL")
-if not TOKEN or not EMAIL:
-    logger.info("Error: BITBUCKET and BITBUCKET_EMAIL env vars must be set")
-    sys.exit(1)
-
-AUTH = (EMAIL, TOKEN)
 CACHE_FILE = Path(__file__).parent / "bb_cache.json"
 console = Console()
 DEFAULT_TIMEOUT = 30
 
+SESSION: requests.Session
 
-def _build_session() -> requests.Session:
+
+def _build_session(auth: tuple[str, str]) -> requests.Session:
     session = requests.Session()
     retry = Retry(
         total=4,
@@ -74,11 +66,8 @@ def _build_session() -> requests.Session:
     adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=20)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    session.auth = AUTH
+    session.auth = auth
     return session
-
-
-SESSION = _build_session()
 
 
 # ---------------------------------------------------------------------------
@@ -760,21 +749,43 @@ class BBStatsApp(App):
 # ---------------------------------------------------------------------------
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="bb-stats",
+        description="Terminal Bitbucket pull request and commit statistics viewer.",
+    )
+    parser.add_argument("-l", "--list", action="store_true", help="interactively pick workspace and repository")
+    parser.add_argument("-r", "--refresh", action="store_true", help="force refresh cached data from the API")
+    parser.add_argument("-w", "--workspace", default=None, help="Bitbucket workspace slug")
+    parser.add_argument("-R", "--repo", default=None, help="Bitbucket repository slug")
+    return parser.parse_args()
+
+
 def main() -> None:
     """Parse CLI flags, load data, and launch the stats application."""
-    args = set(sys.argv[1:])
-    refresh = "--refresh" in args or "-r" in args
-    use_list = "--list" in args or "-l" in args
+    load_dotenv()
 
-    workspace, repo_slug = WORKSPACE, REPO_SLUG
+    token = os.environ.get("BITBUCKET")
+    email = os.environ.get("BITBUCKET_EMAIL")
+    if not token or not email:
+        logger.error("Error: BITBUCKET and BITBUCKET_EMAIL env vars must be set")
+        sys.exit(1)
 
-    if use_list:
+    global SESSION  # noqa: PLW0603
+    SESSION = _build_session((email, token))
+
+    args = _parse_args()
+
+    workspace = args.workspace
+    repo_slug = args.repo
+
+    if args.list or not workspace or not repo_slug:
         result = SelectionApp().run()
         if not result:
             return
         workspace, repo_slug = result
 
-    cached = load_cache(workspace, repo_slug) if not refresh else None
+    cached = load_cache(workspace, repo_slug) if not args.refresh else None
 
     if cached:
         merged, open_prs, commits, fetched_at = cached
