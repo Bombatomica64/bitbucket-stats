@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import sys
+import tomllib
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
@@ -48,8 +49,39 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 CACHE_FILE = Path(__file__).parent / "bb_cache.json"
+CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "bb-stats"
+CONFIG_FILE = CONFIG_DIR / "config.toml"
 console = Console()
 DEFAULT_TIMEOUT = 30
+
+
+def _load_config() -> dict[str, str]:
+    """Load credentials from config file, env vars, and .env (in priority order)."""
+    load_dotenv(override=False)
+
+    cfg: dict[str, str] = {}
+    if CONFIG_FILE.exists():
+        with CONFIG_FILE.open("rb") as f:
+            data = tomllib.load(f)
+        if data.get("email"):
+            cfg["email"] = data["email"]
+        if data.get("token"):
+            cfg["token"] = data["token"]
+
+    return {
+        "email": os.environ.get("BITBUCKET_EMAIL") or cfg.get("email", ""),
+        "token": os.environ.get("BITBUCKET") or cfg.get("token", ""),
+    }
+
+
+def _configure() -> None:
+    """Interactively create the config file."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    email = input("Bitbucket email: ").strip()
+    token = input("Bitbucket app password: ").strip()
+    CONFIG_FILE.write_text(f'email = "{email}"\ntoken = "{token}"\n')
+    CONFIG_FILE.chmod(0o600)
+    console.print(f"[green]Config saved to {CONFIG_FILE}[/green]")
 
 SESSION: requests.Session
 
@@ -758,23 +790,25 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("-r", "--refresh", action="store_true", help="force refresh cached data from the API")
     parser.add_argument("-w", "--workspace", default=None, help="Bitbucket workspace slug")
     parser.add_argument("-R", "--repo", default=None, help="Bitbucket repository slug")
+    parser.add_argument("--configure", action="store_true", help="set up credentials in ~/.config/bb-stats/config.toml")
     return parser.parse_args()
 
 
 def main() -> None:
     """Parse CLI flags, load data, and launch the stats application."""
-    load_dotenv()
+    args = _parse_args()
 
-    token = os.environ.get("BITBUCKET")
-    email = os.environ.get("BITBUCKET_EMAIL")
-    if not token or not email:
-        logger.error("Error: BITBUCKET and BITBUCKET_EMAIL env vars must be set")
+    if args.configure:
+        _configure()
+        return
+
+    cfg = _load_config()
+    if not cfg["token"] or not cfg["email"]:
+        logger.error("Error: credentials not found. Set BITBUCKET/BITBUCKET_EMAIL env vars or run: bb-stats --configure")
         sys.exit(1)
 
     global SESSION  # noqa: PLW0603
-    SESSION = _build_session((email, token))
-
-    args = _parse_args()
+    SESSION = _build_session((cfg["email"], cfg["token"]))
 
     workspace = args.workspace
     repo_slug = args.repo

@@ -5,3 +5,5 @@ __pycache__/
 .venv/
 .claude/
 .agents/
+bb_stats.egg-info/
+bitbucket_stats.egg-info/

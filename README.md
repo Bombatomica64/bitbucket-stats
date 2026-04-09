@@ -18,43 +18,45 @@ Terminal-based Bitbucket pull request and commit statistics viewer built with [T
 - **Commits** — weekly/monthly/day-of-week/hour-of-day charts and author breakdown
 - Local JSON caching per workspace/repo to avoid redundant API calls
 
+## Install
+
+```bash
+uvx bb-stats
+```
+
 ## Setup
 
-### Environment variables
-
-Create a `.env` file (or export the variables) with your Bitbucket **app password** and account email:
-
-```
-BITBUCKET=your_app_password
-BITBUCKET_EMAIL=your@email.com
-```
-
-### Install
+Run the interactive configuration to store your Bitbucket credentials:
 
 ```bash
-uv sync
+bb-stats --configure
 ```
 
-Or run directly as a script without installing:
+This saves your email and app password to `~/.config/bb-stats/config.toml` (chmod 600).
+
+Alternatively, set environment variables (these take priority over the config file):
 
 ```bash
-uv run bb_stats.py
+export BITBUCKET=your_app_password
+export BITBUCKET_EMAIL=your@email.com
 ```
+
+A `.env` file in the current directory is also supported as a fallback.
 
 ## Usage
 
 ```bash
-# Run with default workspace/repo (configured in bb_stats.py)
+# Interactive workspace → repo picker (default when no -w/-R given)
 bb-stats
 
-# Interactive workspace → repo picker
-bb-stats --list   # or -l
+# Specify workspace and repo directly
+bb-stats -w myworkspace -R myrepo
 
 # Force refresh cached data
 bb-stats --refresh   # or -r
 
 # Combine flags
-bb-stats -l -r
+bb-stats -w myworkspace -R myrepo -r
 ```
 
 ### Keyboard shortcuts
